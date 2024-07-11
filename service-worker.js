@@ -21,6 +21,15 @@ chrome.action.onClicked.addListener(async function () {
     a[href]
   `;
 
+  const interactiveElements = await chrome.scripting.executeScript({
+    target: { tabId: tabId },
+    func: (selector) => {
+      const interactiveElements = document.querySelectorAll(selector);
+      return [...interactiveElements];
+    },
+    args: [selector]
+  });
+
   const interactiveElementsHtml = await chrome.scripting.executeScript({
     target: { tabId: tabId },
     func: (selector) => {
@@ -80,10 +89,11 @@ chrome.action.onClicked.addListener(async function () {
       const padding = 10;
 
       const { top, left, width, height } = rect;
-      const cropWidth = Math.floor(width) + 2 * padding;
-      const cropHeight = Math.floor(height) + 2 * padding;
-      const cropX = Math.floor(left) - padding;
-      const cropY = Math.floor(top) - padding;
+      const cropX = Math.max(Math.floor(left) - padding, 0);
+      const cropY = Math.max(Math.floor(top) - padding, 0);
+      const cropWidth = Math.min(Math.floor(width) + 2 * padding, imgBitmap.width - cropX);
+      const cropHeight = Math.min(Math.floor(height) + 2 * padding, imgBitmap.height - cropY);
+
 
       if (cropWidth <= 0 || cropHeight <= 0 || cropX < 0 || cropY < 0) {
         throw new Error('Invalid crop dimensions');
@@ -147,11 +157,36 @@ chrome.action.onClicked.addListener(async function () {
   const screenshotFocusedUrls = [screenshotFocusedUrl]
 
 
+  //
+
+  // for (const element of interactiveElements.result) {
+  //   try {
+  //     // Focus on the element
+  //     element.focus();
+
+  //     // Capture screenshot with focus
+  //     const screenshotFocusedUrl = await captureAndCropScreenshot(element.getBoundingClientRect());
+  //     console.log('Captured focused screenshot:', screenshotFocusedUrl);
+
+  //     // Capture screenshot without focus
+  //     element.blur();
+  //     const screenshotUrl = await captureAndCropScreenshot(element.getBoundingClientRect());
+  //     console.log('Captured unfocused screenshot:', screenshotUrl);
+
+  //     // Process or display the screenshots as needed
+  //     // Example: Send screenshots to another tab or process them further
+  //   } catch (error) {
+  //     console.error('Error capturing screenshot for element:', element, error);
+  //   }
+  // }
+
+
+
 
   //
 
   const htmlElements = interactiveElementsHtml[0]?.result || "";
-  const htmlElement = htmlElements[0];
+  const htmlElement = htmlElements[1];
   console.log(htmlElement);
 
 
