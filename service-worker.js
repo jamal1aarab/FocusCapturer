@@ -21,14 +21,28 @@ chrome.action.onClicked.addListener(async function () {
     a[href]
   `;
 
-  const interactiveElements = await chrome.scripting.executeScript({
+  console.log("Selector: ", selector);
+
+
+
+
+  const interactiveElementsIds = await chrome.scripting.executeScript({
     target: { tabId: tabId },
     func: (selector) => {
       const interactiveElements = document.querySelectorAll(selector);
-      return [...interactiveElements];
+
+      // Assign unique IDs to elements without an ID
+      interactiveElements.forEach((el, index) => {
+        if (!el.id) {
+          el.id = `auto-generated-id-${index}`;
+        }
+      });
+
+      return Array.from(interactiveElements).map(el => el.id);
     },
     args: [selector]
   });
+
 
   const interactiveElementsHtml = await chrome.scripting.executeScript({
     target: { tabId: tabId },
@@ -48,7 +62,6 @@ chrome.action.onClicked.addListener(async function () {
     target: { tabId: tabId },
     func: (selector) => {
       const interactiveElements = document.querySelectorAll(selector);
-      interactiveElements[0].blur();
       return Array.from(interactiveElements).map(el => {
         const rect = el.getBoundingClientRect();
         return {
@@ -118,67 +131,117 @@ chrome.action.onClicked.addListener(async function () {
   }
 
 
+  //
+
 
   const rectsArray = interactiveElementsRects[0]?.result || [];
 
+  // const screenshotUrl = await captureAndCropScreenshot(rectsArray[0]);
 
-  const screenshotUrl = await captureAndCropScreenshot(rectsArray[0]);
-
-  const screenshotUrls = [screenshotUrl];
-
+  // const screenshotUrls = [screenshotUrl];
 
 
 
-  const interactiveElementsRectsFocused = await chrome.scripting.executeScript({
-    target: { tabId: tabId },
-    func: (selector) => {
-      const interactiveElements = document.querySelectorAll(selector);
 
-      interactiveElements[0].focus();
-      return Array.from(interactiveElements).map(el => {
-        const rect = el.getBoundingClientRect();
-        return {
-          top: rect.top,
-          left: rect.left,
-          width: rect.width,
-          height: rect.height
-        };
-      });
-    },
-    args: [selector]
-  });
+  // const interactiveElementsRectsFocused = await chrome.scripting.executeScript({
+  //   target: { tabId: tabId },
+  //   func: (selector) => {
+  //     const interactiveElements = document.querySelectorAll(selector);
+
+  //     interactiveElements[0].focus();
+  //     return Array.from(interactiveElements).map(el => {
+  //       const rect = el.getBoundingClientRect();
+  //       return {
+  //         top: rect.top,
+  //         left: rect.left,
+  //         width: rect.width,
+  //         height: rect.height
+  //       };
+  //     });
+  //   },
+  //   args: [selector]
+  // });
 
 
 
-  const rectsArrayFocused = interactiveElementsRectsFocused[0]?.result || [];
+  // const rectsArrayFocused = interactiveElementsRectsFocused[0]?.result || [];
 
-  const screenshotFocusedUrl = await captureAndCropScreenshot(rectsArrayFocused[0]);
+  // const screenshotFocusedUrl = await captureAndCropScreenshot(rectsArrayFocused[0]);
 
-  const screenshotFocusedUrls = [screenshotFocusedUrl]
+  // const screenshotFocusedUrls = [screenshotFocusedUrl]
 
 
   //
 
-  // for (const element of interactiveElements.result) {
-  //   try {
-  //     // Focus on the element
-  //     element.focus();
+  const screenshotUrls = [];
+  const screenshotFocusedUrls = [];
 
-  //     // Capture screenshot with focus
-  //     const screenshotFocusedUrl = await captureAndCropScreenshot(element.getBoundingClientRect());
-  //     console.log('Captured focused screenshot:', screenshotFocusedUrl);
+  // Iterate through interactive elements
 
-  //     // Capture screenshot without focus
-  //     element.blur();
-  //     const screenshotUrl = await captureAndCropScreenshot(element.getBoundingClientRect());
-  //     console.log('Captured unfocused screenshot:', screenshotUrl);
 
-  //     // Process or display the screenshots as needed
-  //     // Example: Send screenshots to another tab or process them further
-  //   } catch (error) {
-  //     console.error('Error capturing screenshot for element:', element, error);
-  //   }
-  // }
+  async function processElement(interactiveElementsIds, rectsArray) {
+    for (let i = 11; i < interactiveElementsIds.length; i++) {
+      const elementId = interactiveElementsIds[i];
+      const boundingClientRect = rectsArray[i];
+
+      try {
+
+        if (!elementId || !boundingClientRect) {
+          console.error('Invalid element or boundingClientRect:', elementId, boundingClientRect);
+          continue;
+        }
+
+        // Blur the element
+        await chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          func: async (elementId) => {
+            const el = document.getElementById(elementId);
+            if (el) {
+              el.focus();
+            }
+          },
+          args: [elementId]
+        });
+
+        // Wait for the element to be focused
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Capture screenshot with focus
+        const screenshotFocusedUrl = await captureAndCropScreenshot(boundingClientRect);
+        screenshotFocusedUrls.push(screenshotFocusedUrl);
+
+
+        // Focus the element
+        await chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          func: async (elementId) => {
+            const el = document.getElementById(elementId);
+            if (el) {
+              el.blur();
+            }
+          },
+          args: [elementId]
+        });
+
+        // Wait for the element to be blurred
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Capture screenshot without focus
+        const screenshotUrl = await captureAndCropScreenshot(boundingClientRect);
+        screenshotUrls.push(screenshotUrl);
+
+      } catch (error) {
+        console.error('Error capturing screenshots for element:', elementId, error);
+      }
+    }
+  }
+
+
+
+
+
+
+  await processElement(interactiveElementsIds[0].result, rectsArray);
 
 
 
@@ -187,7 +250,10 @@ chrome.action.onClicked.addListener(async function () {
 
   const htmlElements = interactiveElementsHtml[0]?.result || "";
   const htmlElement = htmlElements[1];
+
   console.log(htmlElement);
+  console.log(htmlElements.length);
+
 
 
   // Open the screenshot in a new tab

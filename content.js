@@ -1,125 +1,95 @@
 // content.js
+console.log("content script");
 
-// Function to write text to clipboard
-async function writeTextToClipboard(value) {
-    if (!value) {
-        console.error('No value provided to write to clipboard');
-        return { status: 'error', message: 'No value provided' };
-    }
+
+async function captureAndCropScreenshot(rect) {
     try {
-        await navigator.clipboard.writeText(value);
-        console.log('Text copied to clipboard successfully!');
-        return { status: 'success' };
-    } catch (err) {
-        console.error('Failed to add text to clipboard:', err);
-        return { status: 'error', message: err.toString() };
-    }
-}
-
-// Function to write blob to clipboard
-async function writeBlobToClipboard(blob) {
-    if (!blob) {
-        console.error('No blob provided to write to clipboard');
-        return { status: 'error', message: 'No blob provided' };
-    }
-    try {
-        const item = new ClipboardItem({ 'image/png': blob });
-        await navigator.clipboard.write([item]);
-        console.log('Image blob copied to clipboard successfully!');
-        return { status: 'success' };
-    } catch (err) {
-        handleClipboardError(err);
-        return { status: 'error', message: err.toString() };
-    }
-}
-
-// Function to write base64 data to clipboard
-async function writeBase64ToClipboard(base64data) {
-    if (!base64data) {
-        console.error('No base64 data provided to write to clipboard');
-        return { status: 'error', message: 'No base64 data provided' };
-    }
-    try {
-        const blob = await fetch(base64data).then(response => response.blob());
-        const item = new ClipboardItem({ 'image/png': blob });
-        await navigator.clipboard.write([item]);
-        console.log('Image blob copied to clipboard successfully!');
-        return { status: 'success' };
-    } catch (err) {
-        handleClipboardError(err);
-        return { status: 'error', message: err.toString() };
-    }
-}
-
-// Helper function to handle clipboard errors
-function handleClipboardError(err) {
-    if (err instanceof DOMException) {
-        console.error('Failed to add to clipboard: DOMException', err);
-    } else if (err instanceof TypeError) {
-        console.error('Failed to add to clipboard: TypeError', err);
-    } else {
-        console.error('Failed to add to clipboard: Unknown error', err);
-    }
-    console.error('Error details:', {
-        name: err.name,
-        message: err.message,
-        stack: err.stack
-    });
-}
-
-// Listening for messages from background or popup scripts
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (!request || !request.action) {
-        console.error('Invalid request received');
-        sendResponse({ status: 'error', message: 'Invalid request' });
-        return false;
-    }
-
-    if (request.action === 'copyTextToClipboard') {
-        if (!request.value) {
-            console.error('No value provided for copyTextToClipboard');
-            sendResponse({ status: 'error', message: 'No value provided' });
-            return false;
-        }
-        writeTextToClipboard(request.value).then(response => {
-            sendResponse(response);
-        }).catch((error) => {
-            sendResponse({ status: 'error', message: error.toString() });
+      console.log('Capturing and cropping screenshot...');
+  
+      // Capture visible tab as base screenshot
+      const dataUrl = await new Promise((resolve, reject) => {
+        chrome.tabs.captureVisibleTab(null, { format: 'png' }, dataUrl => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError.message);
+          } else {
+            resolve(dataUrl);
+          }
         });
-        return true;  // Will respond asynchronously
-    } else if (request.action === 'copyBlobToClipboard') {
-        if (!request.blob) {
-            console.error('No blob provided for copyBlobToClipboard');
-            sendResponse({ status: 'error', message: 'No blob provided' });
-            return false;
-        }
-        writeBlobToClipboard(request.blob).then(response => {
-            sendResponse(response);
-        }).catch((error) => {
-            sendResponse({ status: 'error', message: error.toString() });
-        });
-        return true;  // Will respond asynchronously
-    } else if (request.action === 'copyImageUrlToClipboard') {
-        if (!request.imageUrl) {
-            console.error('No imageUrl provided for copyImageUrlToClipboard');
-            sendResponse({ status: 'error', message: 'No imageUrl provided' });
-            return false;
-        }
-        const imageUrl = request.imageUrl;
-        fetch(imageUrl)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                return response.blob();
-            })
-            .then(blob => writeBlobToClipboard(blob))
-            .then(result => sendResponse(result))
-            .catch(error => sendResponse({ status: 'error', message: error.toString() }));
-        return true;  // Will respond asynchronously
-    } else {
-        console.error('Unknown action:', request.action);
-        sendResponse({ status: 'error', message: 'Unknown action' });
-        return false;
+      });
+  
+      // Fetch the base screenshot as a blob
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+  
+      // Create an ImageBitmap from the blob
+      const imgBitmap = await createImageBitmap(blob);
+  
+      // Create an OffscreenCanvas and draw the base image on it
+      const canvas = new OffscreenCanvas(imgBitmap.width, imgBitmap.height);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgBitmap, 0, 0);
+  
+      // Calculate cropping dimensions
+      const padding = 10;
+      const { left, top, width, height } = rect;
+      const cropX = Math.max(Math.floor(left) - padding, 0);
+      const cropY = Math.max(Math.floor(top) - padding, 0);
+      const cropWidth = Math.min(Math.floor(width) + 2 * padding, imgBitmap.width - cropX);
+      const cropHeight = Math.min(Math.floor(height) + 2 * padding, imgBitmap.height - cropY);
+  
+      // Crop the image
+      const croppedCanvas = new OffscreenCanvas(cropWidth, cropHeight);
+      const croppedCtx = croppedCanvas.getContext('2d');
+      croppedCtx.drawImage(canvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+  
+      // Convert cropped canvas to a blob and then to data URL
+      const croppedBlob = await croppedCanvas.convertToBlob();
+      const croppedDataUrl = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(croppedBlob);
+      });
+  
+      return croppedDataUrl;
+    } catch (error) {
+      console.error('Error capturing or cropping screenshot:', error);
+      return null;
     }
-});
+  }
+  
+  // Message listener for screenshot capture
+  chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+    if (message.msg === 'captureScreenshots') {
+      const { interactiveElements } = message.data;
+  
+      const screenshotUrls = [];
+      const screenshotFocusedUrls = [];
+  
+      for (const element of interactiveElements) {
+        try {
+          // Focus on the element
+          element.focus();
+  
+          // Capture screenshot with focus
+          const screenshotFocusedUrl = await captureAndCropScreenshot(element.getBoundingClientRect());
+          console.log('Captured focused screenshot:', screenshotFocusedUrl);
+          screenshotFocusedUrls.push(screenshotFocusedUrl);
+  
+          // Blur the element
+          element.blur();
+  
+          // Capture screenshot without focus
+          const screenshotUrl = await captureAndCropScreenshot(element.getBoundingClientRect());
+          console.log('Captured unfocused screenshot:', screenshotUrl);
+          screenshotUrls.push(screenshotUrl);
+  
+        } catch (error) {
+          console.error('Error capturing screenshots for element:', element, error);
+        }
+      }
+  
+      // Send captured screenshots or data back to the service worker
+      sendResponse({ screenshotUrls, screenshotFocusedUrls });
+    }
+  });
+  

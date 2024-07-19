@@ -12,15 +12,21 @@
       color: #333;
     }
     .container {
-      max-width: 800px;
+      max-width: 400px;
       margin: 0 auto;
       padding: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
     }
-    img {
-      max-width: 100%;
-      margin: auto;
+    .container img {
+      flex: 1 0 calc(50% - 10px);
+      box-sizing: border-box;
       height: auto;
       border: black solid 1px;
+    }
+    #html-target {
+      margin: 0;
     }
   </style>
 </head>
