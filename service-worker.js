@@ -1,7 +1,7 @@
 // service-worker.js
 console.log("Service worker running...");
 
-// Listen for clicks on the extension's action button
+// listen for click on the extension icon
 chrome.action.onClicked.addListener(async function () {
 
   console.log("Action button clicked");
@@ -12,33 +12,125 @@ chrome.action.onClicked.addListener(async function () {
     console.error("No active tab found");
     return;
   }
-
   const tabId = tab.id;
 
-  console.log("Capturing elements...");
 
   const selector = `
-    a[href]
-  `;
+  a[href]
+`;
 
-  console.log("Selector: ", selector);
+  // console.log("Selector: ", selector);
+
+    // Function to capture and crop a screenshot
+    async function captureAndCropScreenshot(rect) {
+      try {
+        const preCut = await new Promise((resolve, reject) => {
+          chrome.tabs.captureVisibleTab(null, { format: "png" }, function (dataUrl) {
+            if (chrome.runtime.lastError) {
+              reject(chrome.runtime.lastError);
+            } else {
+              resolve(dataUrl);
+            }
+          });
+        });
+  
+        const response = await fetch(preCut);
+        const blob = await response.blob();
+  
+        const imgBitmap = await createImageBitmap(blob);
+        const canvas = new OffscreenCanvas(imgBitmap.width, imgBitmap.height);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(imgBitmap, 0, 0);
+  
+        const padding = 10;
+  
+        const { top, left, width, height } = rect;
+  
+        const cropX = Math.floor(left);
+        const cropY = Math.floor(top);
+        const cropWidth = Math.floor(width);
+        const cropHeight = Math.floor(height);
+  
+  
+        if (cropWidth <= 0 || cropHeight <= 0) {
+          console.warn('Invalid crop dimensions:', cropX, cropY, cropWidth, cropHeight);
+          return;
+        }
+        else {
+          console.log('Crop dimensions:', cropX, cropY, cropWidth, cropHeight);
+        }
+  
+        const croppedCanvas = new OffscreenCanvas(cropWidth, cropHeight);
+        const croppedCtx = croppedCanvas.getContext('2d');
+        croppedCtx.drawImage(canvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+  
+        const croppedBlob = await croppedCanvas.convertToBlob();
+        const croppedDataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(croppedBlob);
+        });
+  
+        return croppedDataUrl;
+  
+      } catch (error) {
+        console.error('Error capturing or cropping screenshot:', error);
+      }
+    }
 
 
-
+//
 
   const interactiveElementsIds = await chrome.scripting.executeScript({
     target: { tabId: tabId },
     func: (selector) => {
+      // Define the isVisible function
+      const isVisible = (el) => {
+        return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+      };
+
+      // Select all elements matching the selector
       const interactiveElements = document.querySelectorAll(selector);
 
-      // Assign unique IDs to elements without an ID
-      interactiveElements.forEach((el, index) => {
+      // Filter out elements that are not visible
+      const visibleElements = Array.from(interactiveElements).filter(el => isVisible(el));
+
+      // Assign unique IDs to elements that don't have one
+      visibleElements.forEach(el => {
         if (!el.id) {
-          el.id = `auto-generated-id-${index}`;
+          el.id = `auto-generated-id-${Math.random().toString(36).substr(2, 9)}`;
         }
       });
 
-      return Array.from(interactiveElements).map(el => el.id);
+      // Return the IDs of visible elements
+      return visibleElements.map(el => el.id);
+    },
+    args: [selector]
+  });
+
+
+  const interactiveElementsRects = await chrome.scripting.executeScript({
+    target: { tabId: tabId },
+    func: (selector) => {
+      // Define the isVisible function
+      const isVisible = (el) => {
+        return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+      };
+
+      const interactiveElements = document.querySelectorAll(selector);
+
+      const visibleElements = Array.from(interactiveElements).filter(el => isVisible(el));
+
+      return visibleElements.map(el => {
+        const rect = el.getBoundingClientRect();
+
+        return {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height
+        };
+      });
     },
     args: [selector]
   });
@@ -58,118 +150,9 @@ chrome.action.onClicked.addListener(async function () {
     args: [selector]
   });
 
-  const interactiveElementsRects = await chrome.scripting.executeScript({
-    target: { tabId: tabId },
-    func: (selector) => {
-      const interactiveElements = document.querySelectorAll(selector);
-      return Array.from(interactiveElements).map(el => {
-        const rect = el.getBoundingClientRect();
-        return {
-          top: rect.top,
-          left: rect.left,
-          width: rect.width,
-          height: rect.height
-        };
-      });
-    },
-    args: [selector]
-  });
-
-
-
-  // Function to capture and crop a screenshot
-  async function captureAndCropScreenshot(rect) {
-    try {
-      console.log('Capturing and cropping screenshot...');
-      const preCut = await new Promise((resolve, reject) => {
-        chrome.tabs.captureVisibleTab(null, { format: "png" }, function (dataUrl) {
-          if (chrome.runtime.lastError) {
-            reject(chrome.runtime.lastError);
-          } else {
-            resolve(dataUrl);
-          }
-        });
-      });
-
-      const response = await fetch(preCut);
-      const blob = await response.blob();
-
-      const imgBitmap = await createImageBitmap(blob);
-      const canvas = new OffscreenCanvas(imgBitmap.width, imgBitmap.height);
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(imgBitmap, 0, 0);
-
-      const padding = 10;
-
-      const { top, left, width, height } = rect;
-      const cropX = Math.max(Math.floor(left) - padding, 0);
-      const cropY = Math.max(Math.floor(top) - padding, 0);
-      const cropWidth = Math.min(Math.floor(width) + 2 * padding, imgBitmap.width - cropX);
-      const cropHeight = Math.min(Math.floor(height) + 2 * padding, imgBitmap.height - cropY);
-
-
-      if (cropWidth <= 0 || cropHeight <= 0 || cropX < 0 || cropY < 0) {
-        throw new Error('Invalid crop dimensions');
-      }
-
-      const croppedCanvas = new OffscreenCanvas(cropWidth, cropHeight);
-      const croppedCtx = croppedCanvas.getContext('2d');
-      croppedCtx.drawImage(canvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
-
-      const croppedBlob = await croppedCanvas.convertToBlob();
-      const croppedDataUrl = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.readAsDataURL(croppedBlob);
-      });
-
-      return croppedDataUrl;
-
-    } catch (error) {
-      console.error('Error capturing or cropping screenshot:', error);
-    }
-  }
-
-
-  //
 
 
   const rectsArray = interactiveElementsRects[0]?.result || [];
-
-  // const screenshotUrl = await captureAndCropScreenshot(rectsArray[0]);
-
-  // const screenshotUrls = [screenshotUrl];
-
-
-
-
-  // const interactiveElementsRectsFocused = await chrome.scripting.executeScript({
-  //   target: { tabId: tabId },
-  //   func: (selector) => {
-  //     const interactiveElements = document.querySelectorAll(selector);
-
-  //     interactiveElements[0].focus();
-  //     return Array.from(interactiveElements).map(el => {
-  //       const rect = el.getBoundingClientRect();
-  //       return {
-  //         top: rect.top,
-  //         left: rect.left,
-  //         width: rect.width,
-  //         height: rect.height
-  //       };
-  //     });
-  //   },
-  //   args: [selector]
-  // });
-
-
-
-  // const rectsArrayFocused = interactiveElementsRectsFocused[0]?.result || [];
-
-  // const screenshotFocusedUrl = await captureAndCropScreenshot(rectsArrayFocused[0]);
-
-  // const screenshotFocusedUrls = [screenshotFocusedUrl]
-
 
   //
 
@@ -177,10 +160,11 @@ chrome.action.onClicked.addListener(async function () {
   const screenshotFocusedUrls = [];
 
   // Iterate through interactive elements
-
-
   async function processElement(interactiveElementsIds, rectsArray) {
-    for (let i = 11; i < interactiveElementsIds.length; i++) {
+    for (let i = 3; i < interactiveElementsIds.length; i++) {
+
+      console.log("capturing Element N : ", i);
+
       const elementId = interactiveElementsIds[i];
       const boundingClientRect = rectsArray[i];
 
@@ -191,12 +175,15 @@ chrome.action.onClicked.addListener(async function () {
           continue;
         }
 
+
+
         // Blur the element
         await chrome.scripting.executeScript({
           target: { tabId: tabId },
           func: async (elementId) => {
             const el = document.getElementById(elementId);
             if (el) {
+              // scrollToElement(el);
               el.focus();
             }
           },
@@ -204,7 +191,7 @@ chrome.action.onClicked.addListener(async function () {
         });
 
         // Wait for the element to be focused
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 4000));
 
         // Capture screenshot with focus
         const screenshotFocusedUrl = await captureAndCropScreenshot(boundingClientRect);
@@ -236,7 +223,11 @@ chrome.action.onClicked.addListener(async function () {
     }
   }
 
+  const htmlElements = interactiveElementsHtml[0]?.result || "";
+  const htmlElement = htmlElements[1];
 
+
+  console.log(htmlElements.length);
 
 
 
@@ -247,12 +238,8 @@ chrome.action.onClicked.addListener(async function () {
 
 
   //
+  console.log(htmlElements);
 
-  const htmlElements = interactiveElementsHtml[0]?.result || "";
-  const htmlElement = htmlElements[1];
-
-  console.log(htmlElement);
-  console.log(htmlElements.length);
 
 
 
