@@ -1,7 +1,7 @@
 {
   "name": "FocusGard",
   "version": "1.3",
-  "description": "Enhance accessibility testing by listing all interactive elements that can receive focus and detect invisible focus issues.",
+  "description": "FocusGard helps improve web accessibility by listing all interactive elements that can receive focus and identifying any visibility issues with these elements. It ensures your site provides an optimal navigation experience for keyboard users.",
   "background": {
     "service_worker": "service-worker.js"
   },
@@ -12,13 +12,23 @@
     }
   ],
   "action": {
+    "default_popup": "popup.html",
     "default_title": "FocusGard"
   },
   "permissions": [
     "activeTab",
     "tabs",
     "scripting",
-    "offscreen"
+    "offscreen",
+    "notifications"
   ],
-  "manifest_version": 3
+  "manifest_version": 3,
+  "commands": {
+    "focusGardAction": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F"
+      },
+      "description": "Activate FocusGard to test and improve focus visibility on the current webpage."
+    }
+  }
 }

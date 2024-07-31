@@ -1,38 +1,53 @@
-function setScreenshotUrls(htmlElement, screenshotUrls, screenshotFocusedUrls) {
-  document.getElementById('html-target').innerHTML = htmlElement;
+// screenshot.js
+function setScreenshotUrls(htmlElements, message, screenshotFocusedUrls, comparisonResult) {
+  document.getElementById('message').textContent = message;
 
   const container = document.querySelector('.container');
 
-
-
-  // Function to create and append an img element
+  // Function to create and append an image element
   function appendImage(src) {
     const img = document.createElement('img');
-
-    img.alt = 'Screenshot preview';
-    img.height = 480;
-
-    if (src == null) {
-      src = 'white.png';
-      img.alt = 'No screenshot available';
-      img.height = 240;
-      img.width = 240;
-    }
-    img.src = src;
+    img.alt = src ? 'Screenshot preview' : 'No screenshot available';
+    img.src = src || 'white.png';
+    img.height = 240;
+    img.width = 240;
     container.appendChild(img);
   }
 
-
-
-  // Append additional screenshots dynamically
-  for (let i = 0; i < screenshotUrls.length && i < screenshotFocusedUrls.length; i++) {
-    appendImage(screenshotUrls[i]);
-    appendImage(screenshotFocusedUrls[i]);
+  // Function to create and append a title element
+  function appendTitle(title) {
+    const h2 = document.createElement('h2');
+    h2.textContent = title;
+    container.appendChild(h2);
   }
+
+  // Function to create and append a code block element
+  function appendCode(code) {
+    const pre = document.createElement('pre');
+    const codeElement = document.createElement('code');
+    codeElement.textContent = code; // Use textContent to escape HTML characters
+    pre.appendChild(codeElement);
+    container.appendChild(pre);
+  }
+
+  // Iterate through comparison results and append images for false results
+  comparisonResult.forEach((hasFocus, index) => {
+    if (!hasFocus) {
+      appendTitle(`Element N° ${index + 1} does not have focus`);
+      appendCode(htmlElements[index]);
+      appendImage(screenshotFocusedUrls[index]);
+    }
+  });
 }
 
+// Listener for messages from the service worker
 chrome.runtime.onMessage.addListener(function (request) {
   if (request.msg === 'screenshot') {
-    setScreenshotUrls(request.data.htmlElement, request.data.screenshotUrls, request.data.screenshotFocusedUrls);
+    setScreenshotUrls(
+      request.data.htmlElements,
+      request.data.message,
+      request.data.screenshotFocusedUrls,
+      request.data.comparisonResult
+    );
   }
 });
