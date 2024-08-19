@@ -1,10 +1,10 @@
 // screenshot.js
-function setScreenshotUrls(htmlElements, message, screenshotFocusedUrls, comparisonResult) {
+function setScreenshotUrls(htmlElements, message, screenshotFocusedUrls, comparisonResult,screenshotUrls) {
   document.getElementById('message').textContent = message;
 
+  // Get the container element
   const container = document.querySelector('.container');
 
-  // Function to create and append an image element
   function appendImage(src) {
     const img = document.createElement('img');
     img.alt = src ? 'Screenshot preview' : 'No screenshot available';
@@ -14,40 +14,48 @@ function setScreenshotUrls(htmlElements, message, screenshotFocusedUrls, compari
     container.appendChild(img);
   }
 
-  // Function to create and append a title element
   function appendTitle(title) {
     const h2 = document.createElement('h2');
     h2.textContent = title;
     container.appendChild(h2);
   }
 
-  // Function to create and append a code block element
   function appendCode(code) {
     const pre = document.createElement('pre');
     const codeElement = document.createElement('code');
-    codeElement.textContent = code; // Use textContent to escape HTML characters
+    codeElement.textContent = code; 
     pre.appendChild(codeElement);
     container.appendChild(pre);
   }
 
-  // Iterate through comparison results and append images for false results
+  // process the comparison result
   comparisonResult.forEach((hasFocus, index) => {
     if (!hasFocus) {
-      appendTitle(`Element N° ${index + 1} does not have focus`);
+      appendTitle(`Element N° ${index + 1} does not have visible focus`);
       appendCode(htmlElements[index]);
       appendImage(screenshotFocusedUrls[index]);
+      appendImage(screenshotUrls[index]);
+    }
+    else {
+      appendTitle(`Element N° ${index + 1} has visible focus`);
+      appendCode(htmlElements[index]);
+      appendImage(screenshotFocusedUrls[index]);
+      appendImage(screenshotUrls[index]);
     }
   });
 }
 
-// Listener for messages from the service worker
+
+
+// communication with service worker
 chrome.runtime.onMessage.addListener(function (request) {
   if (request.msg === 'screenshot') {
     setScreenshotUrls(
       request.data.htmlElements,
       request.data.message,
       request.data.screenshotFocusedUrls,
-      request.data.comparisonResult
+      request.data.comparisonResult,
+      request.data.screenshotUrls
     );
   }
 });

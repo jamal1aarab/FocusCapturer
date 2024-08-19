@@ -7,6 +7,17 @@ chrome.commands.onCommand.addListener(async function (command) {
 
   console.log("FocusGard shortcut triggered");
 
+
+  function changeWindowResolution(width, height) {
+    chrome.windows.getCurrent({}, function(window) {
+      chrome.windows.update(window.id, { width: width, height: height });
+    });
+  }
+  
+  // Example usage: change the width to 800px
+  changeWindowResolution(1920,1080);
+  console.log("Window resolution changed to 1920px x 1080px");
+
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) {
     console.error("No active tab found");
@@ -58,8 +69,10 @@ chrome.commands.onCommand.addListener(async function (command) {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(imgBitmap, 0, 0);
 
-      const padding = 10;
+
       const { top, left, width, height } = rect;
+
+      const padding = 10;
       const availableTop = top;
       const availableLeft = left;
       const availableRight = imgBitmap.width - (left + width);
@@ -77,7 +90,7 @@ chrome.commands.onCommand.addListener(async function (command) {
 
       if (cropWidth <= 0 || cropHeight <= 0) {
         console.warn('Invalid crop dimensions:', cropX, cropY, cropWidth, cropHeight);
-        return;
+        return null;
       }
 
       const croppedCanvas = new OffscreenCanvas(cropWidth, cropHeight);
@@ -97,8 +110,9 @@ chrome.commands.onCommand.addListener(async function (command) {
     }
   }
 
+
   // Find interactive elements
-  async function getInteractiveElements() {
+  async function getInteractiveElementsIds() {
     const result = await chrome.scripting.executeScript({
       target: { tabId },
       func: (selector) => {
@@ -120,7 +134,7 @@ chrome.commands.onCommand.addListener(async function (command) {
     return result[0].result;
   }
 
-  async function getInteractiveElementsHtml() {
+  async function getInteractiveElementsIdsHtml() {
     const result = await chrome.scripting.executeScript({
       target: { tabId },
       func: (selector) => {
@@ -128,9 +142,6 @@ chrome.commands.onCommand.addListener(async function (command) {
         const interactiveElements = document.querySelectorAll(selector);
         const visibleElements = Array.from(interactiveElements).filter(isVisible);
 
-        function escapeHtml(html) {
-          return html.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        }
 
         return visibleElements.map(el => el.outerHTML);
       },
@@ -181,8 +192,9 @@ chrome.commands.onCommand.addListener(async function (command) {
         });
 
         const rect = boundingClientRect[0].result;
+        console.log(rect)
         const screenshotFocusedUrl = await captureAndCropScreenshot(rect);
-        screenshotFocusedUrls.push(screenshotFocusedUrl);
+        if (screenshotFocusedUrl) screenshotFocusedUrls.push(screenshotFocusedUrl);
 
         await chrome.scripting.executeScript({
           target: { tabId },
@@ -196,7 +208,7 @@ chrome.commands.onCommand.addListener(async function (command) {
         await new Promise(resolve => setTimeout(resolve, 500));
 
         const screenshotUrl = await captureAndCropScreenshot(rect);
-        screenshotUrls.push(screenshotUrl);
+        if (screenshotUrl) screenshotUrls.push(screenshotUrl);
       } catch (error) {
         console.error('Error capturing screenshots for element:', elementId, error);
       }
@@ -207,39 +219,54 @@ chrome.commands.onCommand.addListener(async function (command) {
 
   async function compareImages(screenshotUrls, screenshotFocusedUrls) {
     const results = [];
-
     for (let i = 0; i < screenshotUrls.length; i++) {
-      const [blob1, blob2] = await Promise.all([
-        (await fetch(screenshotUrls[i])).blob(),
-        (await fetch(screenshotFocusedUrls[i])).blob()
-      ]);
+        try {
+            const [blob1, blob2] = await Promise.all([
+                fetch(screenshotUrls[i]).then(response => {
+                    if (!response.ok) throw new Error(`Failed to fetch ${screenshotUrls[i]}: ${response.statusText}`);
+                    return response.blob();
+                }),
+                fetch(screenshotFocusedUrls[i]).then(response => {
+                    if (!response.ok) throw new Error(`Failed to fetch ${screenshotFocusedUrls[i]}: ${response.statusText}`);
+                    return response.blob();
+                })
+            ]);
 
-      const [bitmap1, bitmap2] = await Promise.all([
-        createImageBitmap(blob1),
-        createImageBitmap(blob2)
-      ]);
+            const [bitmap1, bitmap2] = await Promise.all([
+                createImageBitmap(blob1),
+                createImageBitmap(blob2)
+            ]);
+            if (bitmap1.width !== bitmap2.width || bitmap1.height !== bitmap2.height) {
+                console.warn(`Image dimensions do not match: ${screenshotUrls[i]} and ${screenshotFocusedUrls[i]}`);
+                results.push(true); // or handle as needed
+                continue;
+            }
 
-      const canvas = new OffscreenCanvas(bitmap1.width, bitmap1.height);
-      const ctx = canvas.getContext('2d');
+            const canvas = new OffscreenCanvas(bitmap1.width, bitmap1.height);
+            const ctx = canvas.getContext('2d');
 
-      ctx.drawImage(bitmap1, 0, 0);
-      ctx.globalCompositeOperation = 'difference';
-      ctx.drawImage(bitmap2, 0, 0);
-      ctx.globalCompositeOperation = 'source-over';
+            ctx.drawImage(bitmap1, 0, 0);
+            ctx.globalCompositeOperation = 'difference';
+            ctx.drawImage(bitmap2, 0, 0);
+            ctx.globalCompositeOperation = 'source-over';
 
-      const imageData = ctx.getImageData(0, 0, bitmap1.width, bitmap1.height);
-      const pixels = imageData.data;
+            const imageData = ctx.getImageData(0, 0, bitmap1.width, bitmap1.height);
+            const pixels = imageData.data;
 
-      const notSame = pixels.some((value, index) => value !== 0 && (index % 4 !== 3)); // Ignore alpha channel
+            const notSame = pixels.some((value, index) => value !== 0 && (index % 4 !== 3)); // Ignore alpha channel
 
-      results.push(notSame);
+            results.push(notSame);
+
+        } catch (error) {
+            console.error('Error comparing images:', error);
+        }
     }
 
     return results;
-  }
+}
 
-  const interactiveElementsIds = await getInteractiveElements();
-  const interactiveElementsHtml = await getInteractiveElementsHtml();
+  const interactiveElementsIds = await getInteractiveElementsIds();
+  const interactiveElementsHtml = await getInteractiveElementsIdsHtml();
   const { screenshotUrls, screenshotFocusedUrls } = await processElements(interactiveElementsIds);
   const comparisonResult = await compareImages(screenshotUrls, screenshotFocusedUrls);
 
@@ -253,7 +280,7 @@ chrome.commands.onCommand.addListener(async function (command) {
     if (tabId !== targetId || changedProps.status !== 'complete') return;
 
     chrome.tabs.onUpdated.removeListener(onTabUpdate);
-    chrome.tabs.sendMessage(tabId, { msg: 'screenshot', data: { htmlElements: interactiveElementsHtml, screenshotFocusedUrls, comparisonResult, message } });
+    chrome.tabs.sendMessage(tabId, { msg: 'screenshot', data: { htmlElements: interactiveElementsHtml,screenshotUrls, screenshotFocusedUrls, comparisonResult, message } });
   }
 
   const tab2 = await chrome.tabs.create({ url: viewTabUrl });
